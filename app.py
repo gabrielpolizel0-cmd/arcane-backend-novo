@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*-
 import os
 from flask import Flask, request, jsonify
 from flask_cors import CORS
@@ -9,7 +10,6 @@ import anthropic
 
 app = Flask(__name__)
 
-# Config
 app.config['SECRET_KEY'] = os.getenv('SECRET_KEY', 'secret')
 app.config['JWT_SECRET_KEY'] = os.getenv('JWT_SECRET_KEY', 'jwt-secret')
 app.config['JWT_ACCESS_TOKEN_EXPIRES'] = timedelta(days=30)
@@ -23,7 +23,6 @@ jwt = JWTManager(app)
 ANTHROPIC_API_KEY = os.getenv('ANTHROPIC_API_KEY', '')
 PLAN_LIMITS = {'free': 5, 'starter': 150, 'business': 500, 'unlimited': 999999}
 
-# Model
 class User(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     email = db.Column(db.String(120), unique=True, nullable=False)
@@ -35,7 +34,6 @@ class User(db.Model):
 with app.app_context():
     db.create_all()
 
-# Auth
 @app.route('/api/auth/register', methods=['POST'])
 def register():
     data = request.get_json()
@@ -48,10 +46,11 @@ def register():
     if User.query.filter_by(email=email).first():
         return jsonify({'error': 'Email ja cadastrado'}), 409
 
-    # 1 conta por IP
     ip = request.headers.get('X-Forwarded-For', request.remote_addr)
+    if ip:
+        ip = ip.split(',')[0].strip()
     if User.query.filter_by(ip_address=ip).first():
-        return jsonify({'error': 'Ja existe uma conta cadastrada neste dispositivo'}), 409
+        return jsonify({'error': 'Ja existe uma conta neste dispositivo'}), 409
 
     hashed = bcrypt.hashpw(password.encode(), bcrypt.gensalt()).decode()
     user = User(email=email, password=hashed, ip_address=ip)
@@ -83,24 +82,23 @@ def me():
     limit = PLAN_LIMITS.get(user.plan, 5)
     return jsonify({'email': user.email, 'plan': user.plan, 'used': user.generations_used, 'limit': limit}), 200
 
-# AI
 TOOL_PROMPTS = {
-    'contrato': 'Você é um especialista jurídico. Gere um contrato profissional completo baseado na descrição do usuário. Seja detalhado e formal.',
-    'proposta': 'Você é um especialista em vendas. Gere uma proposta comercial profissional baseada na descrição do usuário.',
-    'relatorio': 'Você é um analista de negócios. Gere um relatório profissional completo baseado nas informações fornecidas.',
-    'email_corp': 'Você é um especialista em comunicação corporativa. Gere um email profissional baseado na descrição do usuário.',
-    'analise': 'Você é um analista de dados. Faça uma análise detalhada baseada nas informações fornecidas.',
-    'dashboard_text': 'Você é um analista. Gere um resumo executivo para dashboard baseado nos dados fornecidos.',
-    'sql': 'Você é um especialista em SQL. Gere queries SQL otimizadas baseado na descrição do usuário.',
-    'previsao': 'Você é um analista preditivo. Faça previsões e análises baseadas nos dados fornecidos.',
-    'ata': 'Você é um secretário executivo. Gere uma ata de reunião profissional baseada nas informações fornecidas.',
-    'resumo_reuniao': 'Você é um especialista em produtividade. Gere um resumo executivo de reunião baseado nas informações fornecidas.',
-    'onboarding': 'Você é um especialista em RH. Gere um plano de onboarding completo baseado nas informações fornecidas.',
-    'knowledge': 'Você é um especialista em gestão do conhecimento. Gere documentação clara e organizada baseada nas informações fornecidas.',
-    'post_social': 'Você é um especialista em marketing digital. Gere posts para redes sociais criativos e engajantes baseado na descrição.',
-    'blog': 'Você é um redator profissional. Gere um artigo de blog completo e otimizado para SEO baseado no tema fornecido.',
-    'email_mkt': 'Você é um especialista em email marketing. Gere um email de marketing persuasivo baseado na descrição.',
-    'descricao': 'Você é um copywriter profissional. Gere descrições persuasivas de produtos ou serviços baseado nas informações fornecidas.',
+    'contrato': 'Voce e um especialista juridico. Gere um contrato profissional completo baseado na descricao do usuario. Seja detalhado e formal.',
+    'proposta': 'Voce e um especialista em vendas. Gere uma proposta comercial profissional baseada na descricao do usuario.',
+    'relatorio': 'Voce e um analista de negocios. Gere um relatorio profissional completo baseado nas informacoes fornecidas.',
+    'email_corp': 'Voce e um especialista em comunicacao corporativa. Gere um email profissional baseado na descricao do usuario.',
+    'analise': 'Voce e um analista de dados. Faca uma analise detalhada baseada nas informacoes fornecidas.',
+    'dashboard_text': 'Voce e um analista. Gere um resumo executivo para dashboard baseado nos dados fornecidos.',
+    'sql': 'Voce e um especialista em SQL. Gere queries SQL otimizadas baseado na descricao do usuario.',
+    'previsao': 'Voce e um analista preditivo. Faca previsoes e analises baseadas nos dados fornecidos.',
+    'ata': 'Voce e um secretario executivo. Gere uma ata de reuniao profissional baseada nas informacoes fornecidas.',
+    'resumo_reuniao': 'Voce e um especialista em produtividade. Gere um resumo executivo de reuniao baseado nas informacoes fornecidas.',
+    'onboarding': 'Voce e um especialista em RH. Gere um plano de onboarding completo baseado nas informacoes fornecidas.',
+    'knowledge': 'Voce e um especialista em gestao do conhecimento. Gere documentacao clara e organizada baseada nas informacoes fornecidas.',
+    'post_social': 'Voce e um especialista em marketing digital. Gere posts para redes sociais criativos e engajantes baseado na descricao.',
+    'blog': 'Voce e um redator profissional. Gere um artigo de blog completo e otimizado para SEO baseado no tema fornecido.',
+    'email_mkt': 'Voce e um especialista em email marketing. Gere um email de marketing persuasivo baseado na descricao.',
+    'descricao': 'Voce e um copywriter profissional. Gere descricoes persuasivas de produtos ou servicos baseado nas informacoes fornecidas.',
 }
 
 @app.route('/api/ai/generate', methods=['POST'])
@@ -112,7 +110,7 @@ def generate():
 
     limit = PLAN_LIMITS.get(user.plan, 5)
     if user.generations_used >= limit:
-        return jsonify({'error': 'Limite de geracoes atingido. Faca upgrade do plano!'}), 403
+        return jsonify({'error': 'Limite atingido. Faca upgrade!'}), 403
 
     data = request.get_json()
     tool = data.get('tool', '').strip()
@@ -128,11 +126,11 @@ def generate():
         message = client.messages.create(
             model='claude-sonnet-4-20250514',
             max_tokens=2048,
-            messages=[{'role': 'user', 'content': f'{TOOL_PROMPTS[tool]}\n\n{user_input}'}]
+            messages=[{'role': 'user', 'content': TOOL_PROMPTS[tool] + '\n\n' + user_input}]
         )
         output = message.content[0].text
     except Exception as e:
-        return jsonify({'error': f'Erro na IA: {str(e)}'}), 500
+        return jsonify({'error': 'Erro na IA: ' + str(e)}), 500
 
     user.generations_used += 1
     db.session.commit()
