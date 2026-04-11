@@ -46,14 +46,9 @@ def register():
     if User.query.filter_by(email=email).first():
         return jsonify({'error': 'Email ja cadastrado'}), 409
 
-    ip = request.headers.get('X-Forwarded-For', request.remote_addr)
-    if ip:
-        ip = ip.split(',')[0].strip()
-    if User.query.filter_by(ip_address=ip).first():
-        return jsonify({'error': 'Ja existe uma conta neste dispositivo'}), 409
 
     hashed = bcrypt.hashpw(password.encode(), bcrypt.gensalt()).decode()
-    user = User(email=email, password=hashed, ip_address=ip)
+    user = User(email=email, password=hashed)
     db.session.add(user)
     db.session.commit()
 
