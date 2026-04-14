@@ -3,3 +3,4 @@ flask-cors
 anthropic
 PyJWT
 supabase
+gunicorn
