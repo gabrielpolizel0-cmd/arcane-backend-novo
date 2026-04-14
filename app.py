@@ -59,7 +59,7 @@ TOOL_PROMPTS = {
   'relatorio_pdf': 'Voce e especialista em comunicacao executiva. Gere relatorio executivo completo.',
 }
 
-def def verify_supabase_token(token):
+def verify_supabase_token(token):
     try:
         from supabase import create_client
         url = os.getenv('SUPABASE_URL', '')
