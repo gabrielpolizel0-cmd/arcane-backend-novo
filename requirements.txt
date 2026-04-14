@@ -1,9 +1,5 @@
-flask==3.1.1
-flask-cors==5.0.1
-flask-jwt-extended==4.7.1
-flask-sqlalchemy==3.1.1
-anthropic==0.52.0
-python-dotenv==1.1.0
-bcrypt==4.3.0
-gunicorn==23.0.0
-psycopg2-binary==2.9.10
+flask
+flask-cors
+anthropic
+PyJWT
+supabase

@@ -1,118 +1,90 @@
 # -*- coding: utf-8 -*-
 import os
+import jwt
+import requests
 from flask import Flask, request, jsonify
 from flask_cors import CORS
-from flask_jwt_extended import JWTManager, create_access_token, jwt_required, get_jwt_identity
-from flask_sqlalchemy import SQLAlchemy
-from datetime import timedelta
-import bcrypt
 import anthropic
 
 app = Flask(__name__)
-
-app.config['SECRET_KEY'] = os.getenv('SECRET_KEY', 'secret')
-app.config['JWT_SECRET_KEY'] = os.getenv('JWT_SECRET_KEY', 'jwt-secret')
-app.config['JWT_ACCESS_TOKEN_EXPIRES'] = timedelta(days=30)
-app.config['SQLALCHEMY_DATABASE_URI'] = os.getenv('DATABASE_URL', 'sqlite:///arcane.db')
-app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
-
 CORS(app, origins='*')
-db = SQLAlchemy(app)
-jwt = JWTManager(app)
 
 ANTHROPIC_API_KEY = os.getenv('ANTHROPIC_API_KEY', '')
-PLAN_LIMITS = {'free': 5, 'starter': 150, 'business': 500, 'unlimited': 999999}
-
-class User(db.Model):
-    id = db.Column(db.Integer, primary_key=True)
-    email = db.Column(db.String(120), unique=True, nullable=False)
-    password = db.Column(db.String(200), nullable=False)
-    plan = db.Column(db.String(20), default='free')
-    generations_used = db.Column(db.Integer, default=0)
-    ip_address = db.Column(db.String(50))
-
-with app.app_context():
-    db.create_all()
-
-@app.route('/api/auth/register', methods=['POST'])
-def register():
-    data = request.get_json()
-    email = data.get('email', '').strip().lower()
-    password = data.get('password', '').strip()
-
-    if not email or not password:
-        return jsonify({'error': 'Email e senha obrigatorios'}), 400
-
-    if User.query.filter_by(email=email).first():
-        return jsonify({'error': 'Email ja cadastrado'}), 409
-
-
-    hashed = bcrypt.hashpw(password.encode(), bcrypt.gensalt()).decode()
-    user = User(email=email, password=hashed)
-    db.session.add(user)
-    db.session.commit()
-
-    token = create_access_token(identity=str(user.id))
-    return jsonify({'access_token': token, 'user': {'email': user.email, 'plan': user.plan}}), 201
-
-@app.route('/api/auth/login', methods=['POST'])
-def login():
-    data = request.get_json()
-    email = data.get('email', '').strip().lower()
-    password = data.get('password', '').strip()
-
-    user = User.query.filter_by(email=email).first()
-    if not user or not bcrypt.checkpw(password.encode(), user.password.encode()):
-        return jsonify({'error': 'Email ou senha incorretos'}), 401
-
-    token = create_access_token(identity=str(user.id))
-    return jsonify({'access_token': token, 'user': {'email': user.email, 'plan': user.plan}}), 200
-
-@app.route('/api/auth/me', methods=['GET'])
-@jwt_required()
-def me():
-    user = User.query.get(int(get_jwt_identity()))
-    if not user:
-        return jsonify({'error': 'Usuario nao encontrado'}), 404
-    limit = PLAN_LIMITS.get(user.plan, 5)
-    return jsonify({'email': user.email, 'plan': user.plan, 'used': user.generations_used, 'limit': limit}), 200
+SUPABASE_JWT_SECRET = os.getenv('SUPABASE_JWT_SECRET', '')
 
 TOOL_PROMPTS = {
-    'contrato': 'Voce e um especialista juridico. Gere um contrato profissional completo baseado na descricao do usuario. Seja detalhado e formal.',
-    'proposta': 'Voce e um especialista em vendas. Gere uma proposta comercial profissional baseada na descricao do usuario.',
-    'relatorio': 'Voce e um analista de negocios. Gere um relatorio profissional completo baseado nas informacoes fornecidas.',
-    'email_corp': 'Voce e um especialista em comunicacao corporativa. Gere um email profissional baseado na descricao do usuario.',
-    'analise': 'Voce e um analista de dados. Faca uma analise detalhada baseada nas informacoes fornecidas.',
-    'dashboard_text': 'Voce e um analista. Gere um resumo executivo para dashboard baseado nos dados fornecidos.',
-    'sql': 'Voce e um especialista em SQL. Gere queries SQL otimizadas baseado na descricao do usuario.',
-    'previsao': 'Voce e um analista preditivo. Faca previsoes e analises baseadas nos dados fornecidos.',
-    'ata': 'Voce e um secretario executivo. Gere uma ata de reuniao profissional baseada nas informacoes fornecidas.',
-    'resumo_reuniao': 'Voce e um especialista em produtividade. Gere um resumo executivo de reuniao baseado nas informacoes fornecidas.',
-    'onboarding': 'Voce e um especialista em RH. Gere um plano de onboarding completo baseado nas informacoes fornecidas.',
-    'knowledge': 'Voce e um especialista em gestao do conhecimento. Gere documentacao clara e organizada baseada nas informacoes fornecidas.',
-    'post_social': 'Voce e um especialista em marketing digital. Gere posts para redes sociais criativos e engajantes baseado na descricao.',
-    'blog': 'Voce e um redator profissional. Gere um artigo de blog completo e otimizado para SEO baseado no tema fornecido.',
-    'email_mkt': 'Voce e um especialista em email marketing. Gere um email de marketing persuasivo baseado na descricao.',
-    'descricao': 'Voce e um copywriter profissional. Gere descricoes persuasivas de produtos ou servicos baseado nas informacoes fornecidas.',
+  'contrato': 'Voce e especialista em direito empresarial brasileiro. Gere um contrato profissional e completo.',
+  'proposta': 'Voce e especialista em vendas B2B. Crie uma proposta comercial persuasiva e profissional.',
+  'relatorio': 'Voce e especialista em comunicacao executiva. Crie um relatorio executivo claro e impactante.',
+  'email_corp': 'Voce e especialista em comunicacao corporativa. Escreva um e-mail profissional.',
+  'analise': 'Voce e analista de dados senior. Analise os dados e gere insights estrategicos.',
+  'query': 'Voce e especialista em banco de dados. Gere uma query SQL otimizada.',
+  'previsao': 'Voce e especialista em business intelligence. Projete tendencias e cenarios.',
+  'kpis': 'Voce e especialista em gestao por indicadores. Sugira KPIs relevantes.',
+  'ata': 'Voce e especialista em comunicacao empresarial. Gere uma ata de reuniao profissional.',
+  'resumo': 'Voce e especialista em sintese. Resuma o conteudo destacando pontos-chave.',
+  'onboarding': 'Voce e especialista em gestao de pessoas. Crie um plano de onboarding completo.',
+  'base_conhecimento': 'Voce e especialista em gestao do conhecimento. Estruture as informacoes.',
+  'post_social': 'Voce e especialista em marketing digital. Crie posts envolventes com hashtags e CTA.',
+  'blog': 'Voce e especialista em content marketing e SEO. Escreva artigo completo e otimizado.',
+  'email_mkt': 'Voce e especialista em e-mail marketing. Escreva campanha persuasiva.',
+  'descricao': 'Voce e especialista em copywriting. Escreva descricao de produto irresistivel.',
+  'orcamento': 'Voce e especialista financeiro. Gere um orcamento profissional detalhado.',
+  'fluxo_caixa': 'Voce e especialista em financas. Crie modelo de fluxo de caixa mensal.',
+  'precificacao': 'Voce e especialista em precificacao. Calcule e justifique o preco ideal.',
+  'nf_descritiva': 'Voce e especialista fiscal. Escreva descricao para nota fiscal de servico.',
+  'lgpd': 'Voce e especialista em LGPD. Gere politica de privacidade completa.',
+  'termos_uso': 'Voce e especialista em direito digital. Escreva termos de uso claros.',
+  'nda': 'Voce e especialista em contratos. Gere um acordo de confidencialidade profissional.',
+  'distrato': 'Voce e especialista em contratos. Gere um distrato comercial formal.',
+  'descricao_vaga': 'Voce e especialista em recrutamento. Escreva descricao de vaga atrativa.',
+  'avaliacao_desemp': 'Voce e especialista em RH. Crie formulario de avaliacao de desempenho.',
+  'politica_interna': 'Voce e especialista em gestao de pessoas. Escreva politica interna clara.',
+  'roteiro_entrevista': 'Voce e especialista em selecao. Crie roteiro de entrevista estruturado.',
+  'cold_call': 'Voce e especialista em vendas. Crie script de cold call eficaz.',
+  'proposta_parc': 'Voce e especialista em parcerias. Crie proposta de parceria convincente.',
+  'followup': 'Voce e especialista em CRM. Escreva mensagem de follow-up eficaz.',
+  'analise_conc': 'Voce e especialista em inteligencia competitiva. Analise o concorrente.',
+  'briefing': 'Voce e especialista em projetos. Crie briefing completo alinhando expectativas.',
+  'proposta_free': 'Voce e especialista em freelance. Escreva proposta profissional.',
+  'contrato_free': 'Voce e especialista em contratos. Gere contrato simples para freelancers.',
+  'bio_prof': 'Voce e especialista em personal branding. Escreva bio profissional impactante.',
+  'roteiro_suporte': 'Voce e especialista em customer success. Crie roteiro de atendimento.',
+  'resp_reclamacao': 'Voce e especialista em gestao de conflitos. Escreva resposta para reclamacao.',
+  'pesq_satisfacao': 'Voce e especialista em NPS. Crie pesquisa de satisfacao estrategica.',
+  'faq_produto': 'Voce e especialista em produto. Crie FAQ completo do produto.',
+  'planilha_orcamento': 'Voce e especialista financeiro. Crie orcamento detalhado em formato CSV para Excel.',
+  'planilha_fluxo': 'Voce e especialista financeiro. Crie fluxo de caixa mensal em CSV. NUNCA use markdown. Sem simbolos de moeda. Use formulas Excel em ingles.',
+  'apresentacao_ppt': 'Voce e especialista em apresentacoes. Crie roteiro de slides profissional.',
+  'relatorio_pdf': 'Voce e especialista em comunicacao executiva. Gere relatorio executivo completo.',
 }
 
-@app.route('/api/ai/generate', methods=['POST'])
-@jwt_required()
-def generate():
-    user = User.query.get(int(get_jwt_identity()))
-    if not user:
-        return jsonify({'error': 'Usuario nao encontrado'}), 404
+def def verify_supabase_token(token):
+    try:
+        from supabase import create_client
+        url = os.getenv('SUPABASE_URL', '')
+        key = os.getenv('SUPABASE_SERVICE_KEY', '')
+        client = create_client(url, key)
+        user = client.auth.get_user(token)
+        return user.user.id if user and user.user else None
+    except Exception as e:
+        print(f"Token error: {e}")
+        return None
 
-    limit = PLAN_LIMITS.get(user.plan, 5)
-    if user.generations_used >= limit:
-        return jsonify({'error': 'Limite atingido. Faca upgrade!'}), 403
+@app.route('/api/ai/generate', methods=['POST'])
+def generate():
+    auth = request.headers.get('Authorization', '')
+    token = auth.replace('Bearer ', '')
+    
+    user_id = verify_supabase_token(token)
+    if not user_id:
+        return jsonify({'error': 'Nao autorizado'}), 401
 
     data = request.get_json()
     tool = data.get('tool', '').strip()
     user_input = data.get('input', '').strip()
+    system_prompt = data.get('system_prompt', TOOL_PROMPTS.get(tool, ''))
 
-    if not tool or tool not in TOOL_PROMPTS:
-        return jsonify({'error': 'Ferramenta invalida'}), 400
     if not user_input:
         return jsonify({'error': 'Input obrigatorio'}), 400
 
@@ -121,24 +93,17 @@ def generate():
         message = client.messages.create(
             model='claude-sonnet-4-20250514',
             max_tokens=2048,
-            messages=[{'role': 'user', 'content': TOOL_PROMPTS[tool] + '\n\n' + user_input}]
+            messages=[{'role': 'user', 'content': system_prompt + '\n\n' + user_input}]
         )
         output = message.content[0].text
     except Exception as e:
         return jsonify({'error': 'Erro na IA: ' + str(e)}), 500
 
-    user.generations_used += 1
-    db.session.commit()
-
-    return jsonify({
-        'output': output,
-        'used': user.generations_used,
-        'limit': limit
-    }), 200
+    return jsonify({'output': output}), 200
 
 @app.route('/api/health')
 def health():
-    return jsonify({'status': 'ok', 'service': 'arcane-api'}), 200
+    return jsonify({'status': 'ok'}), 200
 
 if __name__ == '__main__':
     app.run(debug=True)
